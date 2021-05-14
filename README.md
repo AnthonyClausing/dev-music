@@ -1,2 +1,2 @@
 # dev-music
-discord bot to play yt videos
+discord bot to play youtube videos
