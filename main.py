@@ -7,14 +7,17 @@ from youtube_dl import YoutubeDL
 from decouple import config
 
 BOT_TOKEN = config('BOT_TOKEN')
+MUSIC_CHANNEL = 'tunes'
+QUEUE_LIMIT = 10
+YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist':'True'}
+FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+
 client = commands.Bot(command_prefix='!')
 
-players = {}
+#Maybe code for multiple instances of the player and its respective queue
+# players = {}
+queue = []
 
-#todo 
-#check: if valid youtube url
-#check: if player is already on/connected
-#create: queue for player
 @client.event
 async def on_ready():
 	print('DEV MUSIC ONLINE')
@@ -22,36 +25,51 @@ async def on_ready():
 @client.command(pass_context=True)
 async def leave(ctx):
   server = ctx.message.guild
-  # del players[server.id]
   voice_client =  server.voice_client
   await voice_client.disconnect()
 
 @client.command(pass_context=True)
 async def play(ctx, url):
-  channel = ctx.message.author.voice.channel
-  await channel.connect()
-  YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist':'True'}
-  FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+  if ctx.channel.name != MUSIC_CHANNEL:
+    await ctx.send('Commands can only be made in the {0}'.format(MUSIC_CHANNEL))
+    return
+  if not is_connected(ctx):
+    voice_channel = ctx.message.author.voice.channel
+    await voice_channel.connect()
+  if not is_valid_url(url):
+    await ctx.send('Invalid youtube url')
+    return
   voice = get(client.voice_clients, guild=ctx.guild)
   if not voice.is_playing():
-      with YoutubeDL(YDL_OPTIONS) as ydl:
-          info = ydl.extract_info(url, download=False)
-      URL = info['formats'][0]['url']
-      voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
-      voice.is_playing()
+      play_song(ctx,voice,url)
   else:
-      await ctx.send("Already playing a song")
-      return
+    if len(queue) < QUEUE_LIMIT:
+      enqueue(url)
+      await ctx.send("Adding to queue...")
+    else:
+      await ctx.send("Maximum of 10 songs can be queued")
 
-# async def on_message(message):
-# 	author = message.author
-# 	print({"name": author},'hello')
-# 	if message.author == client.user:
-# 		return 
-# 	if message.content.startswith('!play') and 'youtu' in message.content:
-# 		id_string = message.content.split('/')[3]
-# 		print(id_string)
-# 		# video_id = id_string[8:] if 'watch' in id_string else id_string
-# 		# await message.channel.send(video_id)
+def is_connected(ctx):
+    voice_client = get(ctx.bot.voice_clients, guild=ctx.guild)
+    return voice_client and voice_client.is_connected()
+
+def is_valid_url(url):
+  return 'youtu' in url
+
+def play_song(ctx, voice, url):
+  with YoutubeDL(YDL_OPTIONS) as ydl:
+    info = ydl.extract_info(url, download=False)
+  URL = info['formats'][0]['url']
+  voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),after=  lambda e: dequeue(ctx, voice))
+  voice.is_playing()
+
+#check queue length to limit number, maybe 'next' command, and a 'check queue' command
+def enqueue(url):
+    queue.append(url)
+
+def dequeue(ctx,voice):
+  if len(queue) > 0:
+    next_song = queue.pop(0)
+    play_song(ctx, voice, next_song)
 
 client.run(BOT_TOKEN)
